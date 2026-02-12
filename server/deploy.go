@@ -200,6 +200,8 @@ func diskSpace(loc string) (uint64, error) {
 // moveFile moves a file by copying it and deleting the source. This is needed because os.Rename
 // only works within one device (i.e. mountpoint). The replication server's temp location and
 // actual location may be on different devices.
+// To ensure that the completed file is created atomically, the copy is done to a temp location
+// within the destination directory, and then the file is renamed within that destination directory.
 func moveFile(sourcePath, destPath string) error {
 	// idempotent create of the destPath directory
 	if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
@@ -210,16 +212,19 @@ func moveFile(sourcePath, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("unable to open source file: %s", err)
 	}
-	outputFile, err := os.Create(destPath)
+	outputTmp, err := os.CreateTemp(filepath.Dir(destPath), "tmp-")
 	if err != nil {
 		inputFile.Close()
-		return fmt.Errorf("unable to open dest file: %s", err)
+		return fmt.Errorf("unable to create a temp file with error %s", err)
 	}
-	defer outputFile.Close()
-	_, err = io.Copy(outputFile, inputFile)
+	_, err = io.Copy(outputTmp, inputFile)
 	inputFile.Close()
 	if err != nil {
-		return fmt.Errorf("writing to output file failed: %s", err)
+		return fmt.Errorf("writing to temp output file failed: %s", err)
+	}
+	if err := os.Rename(outputTmp.Name(), destPath); err != nil {
+		return fmt.Errorf("failed renaming temp file %s to output file %s with error %s",
+			outputTmp.Name(), destPath, err)
 	}
 	// Success, now delete the original file.
 	err = os.Remove(sourcePath)
