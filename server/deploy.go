@@ -20,6 +20,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
+	"time"
 
 	"golang.org/x/sys/unix"
 	"google.golang.org/grpc/codes"
@@ -30,6 +32,9 @@ import (
 	"github.com/openconfig/containerz/containers"
 	cpb "github.com/openconfig/gnoi/containerz"
 )
+
+// tmpFilePrefix is a prefix used in the naming of temp files written by moveFile
+const tmpFilePrefix = ".tmp-"
 
 // pluginLocation is the location where plugins are expected to be written to.
 var pluginLocation = "/plugins"
@@ -212,7 +217,13 @@ func moveFile(sourcePath, destPath string) error {
 	if err != nil {
 		return fmt.Errorf("unable to open source file: %s", err)
 	}
-	outputTmp, err := os.CreateTemp(filepath.Dir(destPath), "tmp-")
+	if baseName := filepath.Base(destPath); strings.HasPrefix(baseName, tmpFilePrefix) {
+		return fmt.Errorf("cannot write file %q with prefix %q,"+
+			" please use another name without this prefix",
+			baseName, tmpFilePrefix)
+	}
+	outputTmp, err := os.CreateTemp(filepath.Dir(destPath),
+		fmt.Sprintf("%s%d-", tmpFilePrefix, time.Now().UnixNano()))
 	if err != nil {
 		inputFile.Close()
 		return fmt.Errorf("unable to create a temp file with error %s", err)
